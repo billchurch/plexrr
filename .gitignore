@@ -1,0 +1,16 @@
+node_modules/
+.env
+.DS_Store
+*.log
+*.lock
+.nyc_output/
+coverage/
+dist/
+build/
+temp/
+.cache/
+output.log
+.idea/
+.vscode/
+ssh_key*
+movies/

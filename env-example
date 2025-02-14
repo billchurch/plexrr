@@ -1,0 +1,6 @@
+PLEX_SERVER=http://plex.somewhere.me:32400
+PLEX_TOKEN=blah
+REMOTE_HOST=my_plex_host
+REMOTE_USER=plex
+REMOTE_PATH=/home/plex/media
+SSH_PRIVATE_KEY=/Users/key/.ssh/id_rsa_plex

@@ -1,0 +1,30 @@
+{
+  "name": "plexrr",
+  "version": "0.1.0",
+  "description": "A Node.js utility for browsing and syncing media files between Plex libraries and remote servers.",
+  "main": "plex-sync.js",
+  "type": "module",
+  "scripts": {
+    "start": "node plex-sync.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "axios-retry": "^4.5.0",
+    "dotenv": "^16.4.7",
+    "inquirer": "^12.4.1",
+    "progress": "^2.0.3",
+    "ssh2": "^1.16.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/billchurch/plexrr.git"
+  },
+  "keywords": [
+    "plex",
+    "sync",
+    "media",
+    "file-transfer"
+  ],
+  "author": "Bill Church",
+  "license": "MIT"
+}
