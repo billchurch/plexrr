@@ -1,7 +1,7 @@
 {
   "name": "plexrr",
   "version": "0.1.0",
-  "description": "A Node.js utility for browsing and syncing media files between Plex libraries and remote servers.",
+  "description": "A Node.js proof-of-concept utility for browsing and downloading media files between a Plex libraries and local storage.",
   "main": "plex-sync.js",
   "type": "module",
   "scripts": {
