@@ -1,9 +1,15 @@
 
 import inquirer from 'inquirer';
-import { getLibraries, getMedia } from './services/plexService.js';
+import { 
+    getLibraries, 
+    getMedia, 
+    getSeasons, 
+    getEpisodes,
+    getAlbums,
+    getTracks
+} from './services/plexService.js';
 import { transferFile } from './services/transferService.js';
 import { validateConfig } from './utils/validator.js';
-
 async function main() {
     try {
         // Validate configuration before proceeding
@@ -12,16 +18,6 @@ async function main() {
         console.log('Configuration validated successfully');
         console.log('Fetching libraries...');
         
-        // Rest of the existing main function code...
-        
-    } catch (err) {
-        console.error('Startup failed:');
-        console.error(err.message);
-        process.exit(1);
-    }
-
-    try {
-        console.log('Fetching libraries...');
         const libraries = await getLibraries();
         const { selectedLibrary } = await inquirer.prompt([
             {
@@ -36,26 +32,99 @@ async function main() {
         ]);
 
         console.log('Fetching media...');
-        const media = await getMedia(selectedLibrary.key, selectedLibrary.type);
-        const { selectedMedia } = await inquirer.prompt([
-            {
+        const media = await getMedia(selectedLibrary.key);
+        
+        if (selectedLibrary.type === 'artist') {
+            // Music handling
+            const { selectedArtist } = await inquirer.prompt([{
+                type: 'list',
+                name: 'selectedArtist',
+                message: 'Select an Artist:',
+                choices: media.map(artist => ({
+                    name: artist.name,
+                    value: artist
+                }))
+            }]);
+
+            const albums = await getAlbums(selectedArtist.ratingKey);
+            const { selectedAlbum } = await inquirer.prompt([{
+                type: 'list',
+                name: 'selectedAlbum',
+                message: 'Select an Album:',
+                choices: albums.map(album => ({
+                    name: album.name,
+                    value: album
+                }))
+            }]);
+
+            const tracks = await getTracks(selectedAlbum.id);
+            const { selectedTrack } = await inquirer.prompt([{
+                type: 'list',
+                name: 'selectedTrack',
+                message: 'Select a Track:',
+                choices: tracks.map(track => ({
+                    name: track.name,
+                    value: track.filePath,
+                    disabled: !track.filePath
+                }))
+            }]);
+
+            if (selectedTrack) {
+                await transferFile(selectedTrack, 'artist');
+            }
+        } else if (selectedLibrary.type === 'show') {
+            // TV Show handling
+            const { selectedShow } = await inquirer.prompt([{
+                type: 'list',
+                name: 'selectedShow',
+                message: 'Select a TV Show:',
+                choices: media.map(show => ({
+                    name: show.name,
+                    value: show
+                }))
+            }]);
+
+            const seasons = await getSeasons(selectedShow.ratingKey);
+            const { selectedSeason } = await inquirer.prompt([{
+                type: 'list',
+                name: 'selectedSeason',
+                message: 'Select a Season:',
+                choices: seasons.map(season => ({
+                    name: season.name,
+                    value: season
+                }))
+            }]);
+
+            const episodes = await getEpisodes(selectedSeason.id);
+            const { selectedEpisode } = await inquirer.prompt([{
+                type: 'list',
+                name: 'selectedEpisode',
+                message: 'Select an Episode:',
+                choices: episodes.map(episode => ({
+                    name: episode.name,
+                    value: episode.filePath,
+                    disabled: !episode.filePath
+                }))
+            }]);
+
+            if (selectedEpisode) {
+                await transferFile(selectedEpisode, 'show');
+            }
+        } else {
+            // Movies handling (existing code)
+            const { selectedMedia } = await inquirer.prompt([{
                 type: 'list',
                 name: 'selectedMedia',
-                message: 'Select a movie/TV show to sync:',
-                choices: media.map((m) => ({ name: m.name, value: m.filePath })),
-            },
-        ]);
+                message: 'Select a movie to sync:',
+                choices: media.map(m => ({
+                    name: m.name,
+                    value: m.filePath,
+                    disabled: !m.filePath
+                }))
+            }]);
 
-        // Find the selected media object to access its full metadata
-        const selectedMediaObject = media.find(m => m.filePath === selectedMedia);
-
-        console.log('\nSelected Media Details:');
-        console.log('Title:', selectedMediaObject.name);
-        console.log('File Path:', selectedMediaObject.filePath);
-        console.log('Media Info:', JSON.stringify(selectedMediaObject.mediaInfo, null, 2));
-
-        const result = await transferFile(selectedMedia, selectedLibrary.type);
-        console.log(result);
+            await transferFile(selectedMedia, 'movie');
+        }
     } catch (err) {
         console.error('Error:', err);
     }

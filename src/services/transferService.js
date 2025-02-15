@@ -4,6 +4,8 @@ import path from 'path';
 import ProgressBar from 'progress';
 import { formatSpeed, formatEta } from '../utils/formatters.js';
 import { CONFIG } from '../config/config.js';
+import { TRANSFER_CONSTANTS } from '../config/constants.js';
+import { ThrottledStream } from '../utils/ThrottledStream.js';
 
 /**
  * Transfers a file from a remote server to a local directory using SFTP.
@@ -11,7 +13,7 @@ import { CONFIG } from '../config/config.js';
  * @param {string} libraryType - The type of library the file belongs to.
  * @returns {Promise<string>} - A promise that resolves with a message indicating the successful download of the file.
  */
-export function transferFile(filePath, libraryType) {
+export function transferFile(filePath, libraryType, options = {}) {
     return new Promise((resolve, reject) => {
         const conn = new Client();
         
@@ -44,9 +46,6 @@ export function transferFile(filePath, libraryType) {
             }
         }
 
-        // Memory management configuration
-        const CHUNK_SIZE = 64 * 1024; // 64KB chunks
-        const MAX_CONCURRENT_CHUNKS = 32;
         let activeChunks = 0;
 
         // Timing and progress tracking
@@ -55,8 +54,6 @@ export function transferFile(filePath, libraryType) {
         let lastTime = Date.now();
         let avgSpeed = 0;
         const speedSamples = [];
-        const SAMPLE_SIZE = 10;
-
         conn.on('ready', async () => {
             try {
                 const sftp = await new Promise((resolve, reject) => {
@@ -70,17 +67,40 @@ export function transferFile(filePath, libraryType) {
                     });
                 });
 
-                const pathMap = {
-                    movie: 'movies',
-                    show: 'tv',
-                    artist: 'music',
-                    // Add other library types as needed
-                };
+                const remoteFilePath = `${CONFIG.REMOTE_PATH}${filePath}`;
+                const localFilePath = `${CONFIG.LOCAL_PATH}${filePath}`;                
 
-                const libraryPath = pathMap[libraryType] || 'other';
-                const relativePath = filePath.split(`/${libraryPath}/`)[1];
-                const remoteFilePath = `${CONFIG.REMOTE_PATH}/${libraryPath}/${relativePath}`;
-                const localFilePath = `${CONFIG.LOCAL_PATH}/${libraryPath}/${relativePath}`;
+                // Add detailed logging before file operations
+                console.log('\nFile Path Details:');
+                console.log('Original Path:', filePath);
+                console.log('Remote Path:', remoteFilePath);
+                console.log('Local Path:', localFilePath);
+
+                // Check remote file existence before proceeding
+                try {
+                    const remoteStats = await new Promise((resolve, reject) => {
+                        sftp.stat(remoteFilePath, (err, stats) => {
+                            if (err) {
+                                console.error('Remote file check failed:', {
+                                    path: remoteFilePath,
+                                    error: err.message
+                                });
+                                reject(err);
+                                return;
+                            }
+                            resolve(stats);
+                        });
+                    });
+                    
+                    console.log('Remote file stats:', {
+                        size: remoteStats.size,
+                        mode: remoteStats.mode,
+                        accessTime: remoteStats.atime,
+                        modifyTime: remoteStats.mtime
+                    });
+                } catch (err) {
+                    throw new Error(`Remote file not accessible: ${remoteFilePath} (${err.message})`);
+                }
 
                 const localDir = path.dirname(localFilePath);
                 await fs.promises.mkdir(localDir, { recursive: true });
@@ -109,9 +129,7 @@ export function transferFile(filePath, libraryType) {
                 console.log('\nStarting transfer...\n');
 
                 const bar = new ProgressBar('Downloading [:bar] :percent :timeLeft :speed', {
-                    complete: '=',
-                    incomplete: ' ',
-                    width: 50,
+                    ...TRANSFER_CONSTANTS.PROGRESS_BAR,
                     total: fileSize,
                     curr: startPosition
                 });
@@ -121,23 +139,33 @@ export function transferFile(filePath, libraryType) {
 
                 const readStream = sftp.createReadStream(remoteFilePath, {
                     start: startPosition,
-                    highWaterMark: CHUNK_SIZE,
+                    highWaterMark: TRANSFER_CONSTANTS.CHUNK_SIZE,
                     autoClose: true
                 });
 
                 const writeStream = fs.createWriteStream(localFilePath, {
                     flags: startPosition ? 'a' : 'w',
                     start: startPosition,
-                    highWaterMark: CHUNK_SIZE
+                    highWaterMark: TRANSFER_CONSTANTS.CHUNK_SIZE
                 });
 
-                // Combine backpressure handling with progress tracking
-                readStream.on('data', (chunk) => {
+                let dataStream = readStream;
+                
+                // Add throttling if speed limit set
+                if (CONFIG.TRANSFER_SPEED_LIMIT) {
+                    const throttledStream = new ThrottledStream({
+                        bytesPerSecond: CONFIG.TRANSFER_SPEED_LIMIT
+                    });
+                    dataStream = readStream.pipe(throttledStream);
+                }
+
+                // Maintain existing chunk handling and progress tracking
+                dataStream.on('data', (chunk) => {
                     activeChunks++;
                     transferred += chunk.length;
                     
                     // Memory management
-                    if (activeChunks >= MAX_CONCURRENT_CHUNKS) {
+                    if (activeChunks >= TRANSFER_CONSTANTS.MAX_CONCURRENT_CHUNKS) {
                         readStream.pause();
                     }
 
@@ -148,7 +176,7 @@ export function transferFile(filePath, libraryType) {
                     if (timeDiff >= 1000) {
                         const currentSpeed = (transferred - lastTransferred) / (timeDiff / 1000);
                         speedSamples.push(currentSpeed);
-                        if (speedSamples.length > SAMPLE_SIZE) {
+                        if (speedSamples.length > TRANSFER_CONSTANTS.SPEED_SAMPLE_SIZE) {
                             speedSamples.shift();
                         }
                         avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
@@ -200,16 +228,20 @@ export function transferFile(filePath, libraryType) {
                 writeStream.on('error', handleStreamError);
 
             } catch (err) {
-                console.error('Transfer operation failed:', err.message);
+                console.error('Transfer operation details:', {
+                    error: err.message,
+                    libraryType,
+                    originalPath: filePath
+                });
                 conn.end();
-                reject(new Error(`Transfer failed: ${err.message}`));
+                throw new Error(`Transfer failed: ${err.message}`);
             }
         }).connect({
             host: CONFIG.REMOTE_HOST,
             username: CONFIG.REMOTE_USER,
             privateKey: fs.readFileSync(CONFIG.SSH_PRIVATE_KEY),
-            readyTimeout: 20000,
-            keepaliveInterval: 10000
+            readyTimeout: TRANSFER_CONSTANTS.READY_TIMEOUT,
+            keepaliveInterval: TRANSFER_CONSTANTS.KEEPALIVE_INTERVAL
         });
     });
 }
