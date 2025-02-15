@@ -8,7 +8,6 @@ export const CONFIG = {
     REMOTE_USER: process.env.REMOTE_USER,
     REMOTE_PATH: process.env.REMOTE_PATH,
     LOCAL_PATH: process.env.LOCAL_PATH,
-    SSH_PRIVATE_KEY: process.env.SSH_PRIVATE_KEY,
     TRANSFER_SPEED_LIMIT: process.env.TRANSFER_SPEED_LIMIT 
         ? parseInt(process.env.TRANSFER_SPEED_LIMIT) * 1024 * 1024 : null, // Convert MB to bytes, null means unthrottled
 };
@@ -37,9 +36,5 @@ export const CONFIG_REQUIREMENTS = {
     LOCAL_PATH: {
         validate: (path) => typeof path === 'string' && fs.existsSync(path),
         message: 'LOCAL_PATH must exist on the filesystem'
-    },
-    SSH_PRIVATE_KEY: {
-        validate: (path) => typeof path === 'string' && fs.existsSync(path),
-        message: 'SSH_PRIVATE_KEY must point to a valid key file'
     }
 };
