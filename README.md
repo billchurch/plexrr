@@ -1,10 +1,11 @@
 # Plexrr
+![Plexrr](images/plexrr.png)
 
 Plex Library Sync Utility
 
 ## Overview
 
-The **Plexrr** Plex Library Sync Utility is a Node.js tool designed to help multiple Plex users browse each other's libraries and selectively sync individual movies or TV shows to a remote library. This allows seamless sharing without completely merging libraries or affecting metadata.
+The **Plexrr** Plex Library Sync Utility is a Node.js tool designed to help Plex users browse each other's libraries and selectively download individual movies or TV shows to a remote library. This allows seamless sharing without completely merging libraries or affecting metadata.
 
 ## Features
 
@@ -84,7 +85,6 @@ Follow the prompts to select a library and media file for syncing.
 🚀 **Enhancements in Progress:**
 
 - **Batch Sync** – Select multiple files for transfer at once.
-- **Use Plex Download Feature** – Should have started with this, but I had something in mind...
 - **Multi-Plex Support** – Allow syncing between different Plex servers.
 - **Web UI** – Build a web-based interface for easier use.
 
