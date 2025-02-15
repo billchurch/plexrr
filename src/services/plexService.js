@@ -49,27 +49,31 @@ export async function getMedia(libraryKey) {
     const { data } = await axiosInstance.get(url);
     
     const processMediaItem = (item) => {
+        const baseInfo = {
+            name: item.title,
+            id: item.ratingKey,
+            type: item.type
+        };
+
         switch(item.type) {
             case 'show':
                 return {
+                    ...baseInfo,
                     name: `${item.title} (TV Show)`,
-                    id: item.ratingKey,
-                    type: 'show',
                     ratingKey: item.ratingKey
                 };
             case 'artist':
                 return {
+                    ...baseInfo,
                     name: `${item.title} (Artist)`,
-                    id: item.ratingKey,
-                    type: 'artist',
                     ratingKey: item.ratingKey
                 };
             default:
+                const mediaPart = item.Media?.[0]?.Part?.[0];
                 return {
-                    name: item.title,
-                    id: item.ratingKey,
-                    type: item.type,
-                    filePath: item.Media?.[0]?.Part?.[0]?.file || null,
+                    ...baseInfo,
+                    downloadKey: mediaPart?.key || null,    // Internal Plex path for downloading
+                    filePath: mediaPart?.file || null,      // Full filesystem path
                     mediaInfo: item.Media
                 };
         }
@@ -95,24 +99,39 @@ export async function getSeasons(showRatingKey) {
         key: season.key
     }));
 }
-
-/**
+ /**
  * Fetches episodes for a given season in a Plex library.
  *
  * @param {string} seasonRatingKey - The rating key of the season to fetch episodes for.
- * @returns {Promise<{ name: string, id: string, type: 'episode', filePath: string | null }>} - An array of episode objects, each with a name, ID, type, and file path.
+ * @returns {Promise<{ name: string, id: string, type: 'episode', downloadKey: string | null, filePath: string | null }>} - An array of episode objects, each with a name, ID, type, download key, and file path.
  */
 export async function getEpisodes(seasonRatingKey) {
     const url = `${CONFIG.PLEX_SERVER}/library/metadata/${seasonRatingKey}/children?X-Plex-Token=${CONFIG.PLEX_TOKEN}`;
     const { data } = await axiosInstance.get(url);
-    return data.MediaContainer.Metadata.map(episode => ({
-        name: `${episode.index}. ${episode.title}`,
-        id: episode.ratingKey,
-        type: 'episode',
-        filePath: episode.Media?.[0]?.Part?.[0]?.file || null
-    }));
+    
+    console.log('Episode data:', JSON.stringify(data.MediaContainer.Metadata[0], null, 2));
+    
+    return data.MediaContainer.Metadata.map(episode => {
+        const mediaPart = episode.Media?.[0]?.Part?.[0];
+        const downloadKey = mediaPart?.key;
+        const filePath = mediaPart?.file;
+        
+        console.log('Episode processing:', {
+            title: episode.title,
+            downloadKey,
+            filePath,
+            mediaPart
+        });
+        
+        return {
+            name: `${episode.index}. ${episode.title}`,
+            id: episode.ratingKey,
+            type: 'episode',
+            downloadKey,
+            filePath
+        };
+    });
 }
-
 /**
  * Fetches a list of albums for a given artist in a Plex library.
  *
@@ -134,15 +153,19 @@ export async function getAlbums(artistRatingKey) {
  * Fetches a list of tracks for a given album in a Plex library.
  *
  * @param {string} albumRatingKey - The rating key of the album to fetch tracks for.
- * @returns {Promise<{ name: string, id: string, type: 'track', filePath: string | null }>} - An array of track objects, each with a name, ID, type, and file path.
+ * @returns {Promise<{ name: string, id: string, type: 'track', downloadKey: string | null, filePath: string | null }>} - An array of track objects, each with a name, ID, type, download key, and file path.
  */
 export async function getTracks(albumRatingKey) {
     const url = `${CONFIG.PLEX_SERVER}/library/metadata/${albumRatingKey}/children?X-Plex-Token=${CONFIG.PLEX_TOKEN}`;
     const { data } = await axiosInstance.get(url);
-    return data.MediaContainer.Metadata.map(track => ({
-        name: `${track.index || '0'}. ${track.title}`,
-        id: track.ratingKey,
-        type: 'track',
-        filePath: track.Media?.[0]?.Part?.[0]?.file || null
-    }));
+    return data.MediaContainer.Metadata.map(track => {
+        const mediaPart = track.Media?.[0]?.Part?.[0];
+        return {
+            name: `${track.index || '0'}. ${track.title}`,
+            id: track.ratingKey,
+            type: 'track',
+            downloadKey: mediaPart?.key || null,    // Add this
+            filePath: mediaPart?.file || null       // Add this
+        };
+    });
 }

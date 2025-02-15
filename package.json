@@ -12,8 +12,7 @@
     "axios-retry": "^4.5.0",
     "dotenv": "^16.4.7",
     "inquirer": "^12.4.1",
-    "progress": "^2.0.3",
-    "ssh2": "^1.16.0"
+    "progress": "^2.0.3"
   },
   "repository": {
     "type": "git",

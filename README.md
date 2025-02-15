@@ -10,18 +10,18 @@ The **Plexrr** Plex Library Sync Utility is a Node.js tool designed to help mult
 
 - 📂 **Browse Plex Libraries** – Query available libraries on your Plex server.
 - 🔍 **Search & Select Media** – Choose specific movies or TV shows to sync.
-- 🔄 **File Transfer** – Uses SFTP (via SSH) to copy selected media files to a remote server.
-- 🔐 **Secure Authentication** – Uses Plex API for library access and SSH for file transfers.
-- 🎮 **Transfer Speed Control** – Built-in throttling mechanism to limit bandwidth usage during transfers.
+- ⬇️ **Direct Downloads** – Uses Plex's native HTTP(s) download functionality for efficient transfers.
+- 🔐 **Secure Authentication** – Uses Plex API for library access and downloads.
+- 🎮 **Transfer Speed Control** – Built-in throttling mechanism to limit bandwidth usage during downloads.
 
 ## How It Works
 
 1. Connects to a Plex server using your **Plex token**.
 2. Lists available **libraries** (Movies, TV Shows, etc.).
-3. Allows the user to **select a movie/TV sho/musicw** to sync.
-4. Extracts the **file path** of the selected media.
-5. Transfers the file from a **remote server** via **SFTP**.
-6. Optionally throttles transfer speed to maintain network stability.
+3. Allows the user to **select a movie/TV show/music** to sync.
+4. Initiates a direct HTTP(s) download from the Plex server.
+5. Saves the media file to the specified local destination.
+6. Optionally throttles download speed to maintain network stability.
 
 ## Configuration
 
@@ -32,11 +32,7 @@ Create a `.env` file with the following settings:
 ```env
 PLEX_SERVER=http://your-plex-server:32400
 PLEX_TOKEN=your-plex-token
-REMOTE_HOST=remote-server-hostname
-REMOTE_USER=remote-username
-REMOTE_PATH=/path/to/remote/media
 LOCAL_PATH=/path/to/local/media
-SSH_PRIVATE_KEY=/path/to/ssh/key
 TRANSFER_SPEED_LIMIT=1  # Optional: Limit transfer speed in MB/s, leave blank for unthrottled
 ```
 
@@ -54,7 +50,6 @@ The TRANSFER_SPEED_LIMIT setting allows you to cap the bandwidth used during fil
 
 - **Node.js (16+)**
 - **Plex Server** with API access
-- **SSH access** to a remote server (for file transfers)
 
 ### Setup
 
@@ -73,7 +68,6 @@ The TRANSFER_SPEED_LIMIT setting allows you to cap the bandwidth used during fil
 
 3. **Configure environment variables:**
    - Update the script with your **Plex Server URL** and **Plex Token**.
-   - Provide **SSH credentials** for the remote server.
 
 ## Usage
 

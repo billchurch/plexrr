@@ -13,4 +13,4 @@ output.log
 .idea/
 .vscode/
 ssh_key*
-movies/
+downloads/

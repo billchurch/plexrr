@@ -1,6 +1,7 @@
-import { Client } from 'ssh2';
 import fs from 'fs';
 import path from 'path';
+import http from 'http';
+import https from 'https';
 import ProgressBar from 'progress';
 import { formatSpeed, formatEta } from '../utils/formatters.js';
 import { CONFIG } from '../config/config.js';
@@ -8,240 +9,168 @@ import { TRANSFER_CONSTANTS } from '../config/constants.js';
 import { ThrottledStream } from '../utils/ThrottledStream.js';
 
 /**
- * Transfers a file from a remote server to a local directory using SFTP.
- * @param {string} filePath - The path of the file to be transferred on the remote server.
- * @param {string} libraryType - The type of library the file belongs to.
- * @returns {Promise<string>} - A promise that resolves with a message indicating the successful download of the file.
+ * Retrieves the file size of a remote file by making a HEAD request to the provided URL.
+ * @param {string} url - The URL of the remote file.
+ * @returns {Promise<number>} - A promise that resolves with the file size in bytes.
  */
-export function transferFile(filePath, libraryType, options = {}) {
+async function getFileSize(url) {
+    const protocol = url.startsWith('https') ? https : http;
     return new Promise((resolve, reject) => {
-        const conn = new Client();
+        protocol.request(url, { method: 'HEAD' }, (res) => {
+            resolve(parseInt(res.headers['content-length'], 10));
+        }).on('error', reject).end();
+    });
+}
+
+/**
+ * Transfers a file from Plex server to a local directory using direct download.
+ * @param {string} key - The Plex media key for the file.
+ * @param {string} libraryType - The type of library the file belongs to.
+ * @returns {Promise<string>} - A promise that resolves with a message indicating the successful download.
+ */
+export async function transferFile(downloadKey, filePath, options = {}) {
+    console.time('transfer-function');
+    
+    // Use internal Plex path for downloading
+    const url = `${CONFIG.PLEX_SERVER}${downloadKey}?download=1&X-Plex-Token=${CONFIG.PLEX_TOKEN}`;
+    // Use friendly path for local storage
+    const localFilePath = `${CONFIG.LOCAL_PATH}${filePath}`;
+
+    console.log('\nFile Path Details:');
+    console.log('Plex URL:', url);
+    console.log('Local Path:', localFilePath);
+    
+    // Ensure download directory exists
+    const localDir = path.dirname(localFilePath);
+    await fs.promises.mkdir(localDir, { recursive: true });
+
+    // Get total file size with HEAD request
+    const fileSize = await getFileSize(url);
+    console.log('Total file size:', fileSize);
+
+    // Check existing file size for resume
+    let startPosition = 0;
+    try {
+        const stats = await fs.promises.stat(localFilePath);
+        startPosition = stats.size;
         
-        // Add connection error handlers
-        conn.on('error', (err) => {
-            console.error('SSH Connection error:', err.message);
-            conn.end();
-            reject(new Error(`SSH Connection failed: ${err.message}`));
-        });
-
-        conn.on('timeout', () => {
-            console.error('SSH Connection timed out');
-            conn.end();
-            reject(new Error('SSH Connection timed out'));
-        });
-
-        conn.on('close', (hadError) => {
-            if (hadError) {
-                console.error('SSH Connection closed due to error');
-                reject(new Error('SSH Connection closed unexpectedly'));
-            }
-        });
-
-        async function getResumePosition(localPath) {
-            try {
-                const stats = await fs.promises.stat(localPath);
-                return stats.size;
-            } catch {
-                return 0;
-            }
+        if (startPosition >= fileSize) {
+            console.timeEnd('transfer-function');
+            return {
+                status: 'skipped',
+                message: `File already exists and is complete: ${localFilePath}`
+            };
         }
+    } catch (err) {
+        console.log('Starting fresh download');
+    }
 
-        let activeChunks = 0;
+    // Only set up transfer resources if we're actually going to download
+    return new Promise((resolve, reject) => {
+        const options = {
+            headers: startPosition ? {
+                'Range': `bytes=${startPosition}-`
+            } : {}
+        };
 
-        // Timing and progress tracking
-        let transferred = 0;
-        let lastTransferred = 0;
-        let lastTime = Date.now();
-        let avgSpeed = 0;
-        const speedSamples = [];
-        conn.on('ready', async () => {
-            try {
-                const sftp = await new Promise((resolve, reject) => {
-                    conn.sftp((err, sftp) => {
-                        if (err) {
-                            console.error('SFTP session creation failed:', err.message);
-                            reject(new Error(`SFTP session failed: ${err.message}`));
-                            return;
-                        }
-                        resolve(sftp);
-                    });
-                });
+        // console.log('Request options:', {
+        //     startPosition,
+        //     headers: options.headers
+        // });
 
-                const remoteFilePath = `${CONFIG.REMOTE_PATH}${filePath}`;
-                const localFilePath = `${CONFIG.LOCAL_PATH}${filePath}`;                
+        const protocol = url.startsWith('https') ? https : http;
+        protocol.get(url, options, (response) => {
+            // console.log('Download response:', {
+            //     statusCode: response.statusCode,
+            //     headers: response.headers
+            // });
 
-                // Add detailed logging before file operations
-                console.log('\nFile Path Details:');
-                console.log('Original Path:', filePath);
-                console.log('Remote Path:', remoteFilePath);
-                console.log('Local Path:', localFilePath);
-
-                // Check remote file existence before proceeding
-                try {
-                    const remoteStats = await new Promise((resolve, reject) => {
-                        sftp.stat(remoteFilePath, (err, stats) => {
-                            if (err) {
-                                console.error('Remote file check failed:', {
-                                    path: remoteFilePath,
-                                    error: err.message
-                                });
-                                reject(err);
-                                return;
-                            }
-                            resolve(stats);
-                        });
-                    });
-                    
-                    console.log('Remote file stats:', {
-                        size: remoteStats.size,
-                        mode: remoteStats.mode,
-                        accessTime: remoteStats.atime,
-                        modifyTime: remoteStats.mtime
-                    });
-                } catch (err) {
-                    throw new Error(`Remote file not accessible: ${remoteFilePath} (${err.message})`);
-                }
-
-                const localDir = path.dirname(localFilePath);
-                await fs.promises.mkdir(localDir, { recursive: true });
-
-                const remoteStats = await new Promise((resolve, reject) => {
-                    sftp.stat(remoteFilePath, (err, stats) => err ? reject(err) : resolve(stats));
-                });
-
-                const startPosition = await getResumePosition(localFilePath);
-                const fileSize = remoteStats.size;
-
-                if (startPosition >= fileSize) {
-                    conn.end(); // Close the SSH connection
-                    resolve({
-                        status: 'skipped',
-                        message: 'File already completely downloaded'
-                    });
-                    return;
-                }
-
-                console.log('\nTransfer Details:');
-                console.log('Remote Path:', remoteFilePath);
-                console.log('Local Path:', localFilePath);
-                console.log('File Size:', fileSize);
-                console.log('Resume Position:', startPosition);
-                console.log('\nStarting transfer...\n');
-
-                const bar = new ProgressBar('Downloading [:bar] :percent :timeLeft :speed', {
-                    ...TRANSFER_CONSTANTS.PROGRESS_BAR,
-                    total: fileSize,
-                    curr: startPosition
-                });
-
-                transferred = startPosition;
-                lastTransferred = startPosition;
-
-                const readStream = sftp.createReadStream(remoteFilePath, {
-                    start: startPosition,
-                    highWaterMark: TRANSFER_CONSTANTS.CHUNK_SIZE,
-                    autoClose: true
-                });
-
-                const writeStream = fs.createWriteStream(localFilePath, {
-                    flags: startPosition ? 'a' : 'w',
-                    start: startPosition,
-                    highWaterMark: TRANSFER_CONSTANTS.CHUNK_SIZE
-                });
-
-                let dataStream = readStream;
-                
-                // Add throttling if speed limit set
-                if (CONFIG.TRANSFER_SPEED_LIMIT) {
-                    const throttledStream = new ThrottledStream({
-                        bytesPerSecond: CONFIG.TRANSFER_SPEED_LIMIT
-                    });
-                    dataStream = readStream.pipe(throttledStream);
-                }
-
-                // Maintain existing chunk handling and progress tracking
-                dataStream.on('data', (chunk) => {
-                    activeChunks++;
-                    transferred += chunk.length;
-                    
-                    // Memory management
-                    if (activeChunks >= TRANSFER_CONSTANTS.MAX_CONCURRENT_CHUNKS) {
-                        readStream.pause();
-                    }
-
-                    // Progress and timing updates
-                    const now = Date.now();
-                    const timeDiff = now - lastTime;
-
-                    if (timeDiff >= 1000) {
-                        const currentSpeed = (transferred - lastTransferred) / (timeDiff / 1000);
-                        speedSamples.push(currentSpeed);
-                        if (speedSamples.length > TRANSFER_CONSTANTS.SPEED_SAMPLE_SIZE) {
-                            speedSamples.shift();
-                        }
-                        avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
-
-                        const remainingBytes = fileSize - transferred;
-                        const eta = Math.ceil(remainingBytes / avgSpeed);
-
-                        bar.tick(transferred - lastTransferred, {
-                            speed: formatSpeed(avgSpeed),
-                            timeLeft: formatEta(eta)
-                        });
-
-                        lastTransferred = transferred;
-                        lastTime = now;
-                    }
-
-                    // Backpressure check
-                    if (!writeStream.write(chunk)) {
-                        readStream.pause();
-                    }
-                });
-
-                writeStream.on('drain', () => {
-                    activeChunks--;
-                    readStream.resume();
-                });
-
-                // Completion handling
-                readStream.on('end', () => {
-                    writeStream.end();
-                });
-
-                writeStream.on('finish', () => {
-                    bar.terminate();
-                    conn.end();
-                    resolve('\nTransfer complete!');
-                });
-
-                // Error handling with cleanup
-                function handleStreamError(err) {
-                    bar.terminate();
-                    readStream.destroy();
-                    writeStream.destroy();
-                    conn.end();
-                    reject(new Error(`Stream error: ${err.message}`));
-                }
-
-                readStream.on('error', handleStreamError);
-                writeStream.on('error', handleStreamError);
-
-            } catch (err) {
-                console.error('Transfer operation details:', {
-                    error: err.message,
-                    libraryType,
-                    originalPath: filePath
-                });
-                conn.end();
-                throw new Error(`Transfer failed: ${err.message}`);
+            if (response.statusCode !== 200 && response.statusCode !== 206) {
+                return reject(new Error(`Failed to download: ${response.statusCode}`));
             }
-        }).connect({
-            host: CONFIG.REMOTE_HOST,
-            username: CONFIG.REMOTE_USER,
-            privateKey: fs.readFileSync(CONFIG.SSH_PRIVATE_KEY),
-            readyTimeout: TRANSFER_CONSTANTS.READY_TIMEOUT,
-            keepaliveInterval: TRANSFER_CONSTANTS.KEEPALIVE_INTERVAL
+
+            const writeStream = fs.createWriteStream(localFilePath, {
+                flags: startPosition ? 'a' : 'w',
+                start: startPosition
+            });
+
+            // Setup progress tracking
+            let transferred = startPosition;
+            let lastTransferred = startPosition;
+            let lastTime = Date.now();
+            let avgSpeed = 0;
+            const speedSamples = [];
+
+            const progressText = startPosition > 0 
+            ? 'Resuming  [:bar] :percent :timeLeft :speed'
+            : 'Downloading [:bar] :percent :timeLeft :speed';
+        
+        const bar = new ProgressBar(progressText, {
+            ...TRANSFER_CONSTANTS.PROGRESS_BAR,
+            total: fileSize,
+            curr: startPosition  // Initialize with existing progress
+        });
+
+            let dataStream = response;
+
+            // Add throttling if speed limit set
+            if (CONFIG.TRANSFER_SPEED_LIMIT) {
+                const throttledStream = new ThrottledStream({
+                    bytesPerSecond: CONFIG.TRANSFER_SPEED_LIMIT
+                });
+                dataStream = response.pipe(throttledStream);
+            }
+
+            dataStream.on('data', chunk => {
+                transferred += chunk.length;
+                
+                // Progress and timing updates
+                const now = Date.now();
+                const timeDiff = now - lastTime;
+
+                if (timeDiff >= 1000) {
+                    const currentSpeed = (transferred - lastTransferred) / (timeDiff / 1000);
+                    speedSamples.push(currentSpeed);
+                    if (speedSamples.length > TRANSFER_CONSTANTS.SPEED_SAMPLE_SIZE) {
+                        speedSamples.shift();
+                    }
+                    avgSpeed = speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length;
+
+                    const remainingBytes = fileSize - transferred;
+                    const eta = Math.ceil(remainingBytes / avgSpeed);
+
+                    bar.tick(transferred - lastTransferred, {
+                        speed: formatSpeed(avgSpeed),
+                        timeLeft: formatEta(eta)
+                    });
+
+                    lastTransferred = transferred;
+                    lastTime = now;
+                }
+            });
+
+            dataStream.pipe(writeStream);
+
+            writeStream.on('finish', () => {
+                bar.terminate();
+                resolve('\nTransfer complete!');
+            });
+
+            // Error handling
+            dataStream.on('error', err => {
+                bar.terminate();
+                writeStream.destroy();
+                fs.unlink(localFilePath, () => reject(new Error(`Download error: ${err.message}`)));
+            });
+
+            writeStream.on('error', err => {
+                bar.terminate();
+                writeStream.destroy();
+                fs.unlink(localFilePath, () => reject(new Error(`Write error: ${err.message}`)));
+            });
+        }).on('error', err => {
+            writeStream.destroy();
+            fs.unlink(localFilePath, () => reject(new Error(`Connection error: ${err.message}`)));
         });
     });
 }
