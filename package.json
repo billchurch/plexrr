@@ -25,5 +25,12 @@
     "file-transfer"
   ],
   "author": "Bill Church",
-  "license": "MIT"
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/billchurch/plexrr/issues"
+  },
+  "homepage": "https://github.com/billchurch/plexrr#readme",
+  "engines": {
+    "node": ">=18.18.0"
+  }
 }

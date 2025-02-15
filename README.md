@@ -49,7 +49,7 @@ The TRANSFER_SPEED_LIMIT setting allows you to cap the bandwidth used during fil
 
 ### Prerequisites
 
-- **Node.js (16+)**
+- **Node.js (18+)**
 - **Plex Server** with API access
 
 ### Setup
