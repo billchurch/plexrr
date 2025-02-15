@@ -4,9 +4,6 @@ import fs from 'fs';
 export const CONFIG = {
     PLEX_SERVER: process.env.PLEX_SERVER,
     PLEX_TOKEN: process.env.PLEX_TOKEN,
-    REMOTE_HOST: process.env.REMOTE_HOST,
-    REMOTE_USER: process.env.REMOTE_USER,
-    REMOTE_PATH: process.env.REMOTE_PATH,
     LOCAL_PATH: process.env.LOCAL_PATH,
     TRANSFER_SPEED_LIMIT: process.env.TRANSFER_SPEED_LIMIT 
         ? parseInt(process.env.TRANSFER_SPEED_LIMIT) * 1024 * 1024 : null, // Convert MB to bytes, null means unthrottled
@@ -20,18 +17,6 @@ export const CONFIG_REQUIREMENTS = {
     PLEX_TOKEN: {
         validate: (token) => typeof token === 'string' && token.length > 0,
         message: 'PLEX_TOKEN is required'
-    },
-    REMOTE_HOST: {
-        validate: (host) => typeof host === 'string' && host.length > 0,
-        message: 'REMOTE_HOST is required'
-    },
-    REMOTE_USER: {
-        validate: (user) => typeof user === 'string' && user.length > 0,
-        message: 'REMOTE_USER is required'
-    },
-    REMOTE_PATH: {
-        validate: (path) => typeof path === 'string' && path.startsWith('/'),
-        message: 'REMOTE_PATH must be an absolute path'
     },
     LOCAL_PATH: {
         validate: (path) => typeof path === 'string' && fs.existsSync(path),
